@@ -24,7 +24,10 @@ Record resources consumed by userlann processes
 %meson_build
 
 %install
-%meson_install
+%{meson_install}
+%{__mkdir_p} %{buildroot}%{_sysconfdir}/sysconfig %{buildroot}%{_unitdir}
+%{__install} -m644 %{_vpath_builddir}/pkg/lockstep %{buildroot}%{_sysconfdir}/sysconfig
+%{__install} -m644 %{_vpath_builddir}/pkg/lockstep.service %{buildroot}%{_unitdir}
 
 %check
 %meson_test
@@ -32,6 +35,8 @@ Record resources consumed by userlann processes
 %files
 %defattr(0755,root,root,0755)
 %{_bindir}/lockstep
+%{_sysconfdir}/sysconfig/lockstep
+%{_unitdir}/lockstep.service
 
 %changelog
 

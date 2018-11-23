@@ -5,7 +5,7 @@ Description=Record process resource consumption
 Nice=19
 EnvironmentFile=-/@sysconfdir@/sysconfig/@name@
 ExecStart=@prefix@/@bindir@/@name@ $LOCKSTEP_ARGS
-StandardOutput=/@localstatedir@/log/@name@.log
+StandardOutput=file:@localstatedir@/log/@name/@name@.log
 Restart=always
 RestartSec=1
 

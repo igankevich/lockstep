@@ -28,6 +28,7 @@ Record resources consumed by userlann processes
 %{__mkdir_p} %{buildroot}%{_sysconfdir}/sysconfig %{buildroot}%{_unitdir}
 %{__install} -m644 %{_vpath_builddir}/pkg/lockstep %{buildroot}%{_sysconfdir}/sysconfig
 %{__install} -m644 %{_vpath_builddir}/pkg/lockstep.service %{buildroot}%{_unitdir}
+%{__mkdir_p} %{buildroot}%{_var}/log/lockstep
 
 %check
 %meson_test

@@ -1,4 +1,5 @@
 executable(
 	'lockstep',
-	sources: ['main.c']
+	sources: ['main.c'],
+	install: true
 )

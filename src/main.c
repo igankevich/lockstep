@@ -338,7 +338,11 @@ collect_stat(int proc_fd, const char* directory, step_t* s) {
 		&s->exit_code
 	);
 //	printf("%d %d %s %lu %lu\n", s->user_id, s->group_id, s->command, s->userspace_time, s->kernel_time);
-	step_write(s);
+	if (nfields == 0) {
+		step_write_all(s);
+	} else {
+		step_write(s);
+	}
 	if (close(fd) == -1) {
 		fprintf(stderr, "unable to close /proc/%s/stat file\n", directory);
 		return -1;

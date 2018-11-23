@@ -1,0 +1,40 @@
+Name:           @name@
+Version:        @version@
+Release:        @release@%{?dist}
+Summary:        Record resources consumed by userlann processes
+
+License:        @license@
+URL:            https://igankevich.github.io/@name@/ 
+Source0:        @name@-%{version}.tar.xz
+BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+
+BuildRequires:  gcc-c++
+BuildRequires:  gtest-devel
+BuildRequires:  meson
+
+%description
+Record resources consumed by userlann processes
+
+%global debug_package %{nil}
+
+%prep
+%autosetup
+
+%build
+%meson --buildtype minsize -Db_lto=true
+%meson_build
+
+%install
+%meson_install
+
+%check
+%meson_test
+
+%files
+%defattr(0755,root,root,0755)
+%{_bindir}/lockstep
+
+%changelog
+
+* Fri Nov 23 2018 Ivan Gankevich <i.gankevich@spbu.ru> 0.1.0-1
+Packaged everything.

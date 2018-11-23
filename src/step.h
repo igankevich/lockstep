@@ -60,6 +60,7 @@ typedef struct {
 	long ticks_per_second;
 	time_t timestamp;
 	char command[4096];
+	char executable[4096];
 } step_t;
 
 

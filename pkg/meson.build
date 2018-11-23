@@ -68,3 +68,24 @@ if ninja.found()
 	)
 endif
 # }}}
+# systemd service {{{
+service = configuration_data()
+service.set('name', meson.project_name())
+service.set('prefix', get_option('prefix'))
+service.set('bindir', get_option('bindir'))
+service.set('localstatedir', get_option('localstatedir'))
+service.set('sysconfdir', get_option('sysconfdir'))
+configure_file(
+	input: meson.project_name() + '.service.in',
+	output: meson.project_name() + '.service',
+	configuration: service
+)
+# }}}
+# sysconfig {{{
+sysconfig = configuration_data()
+configure_file(
+	input: meson.project_name() + '.in',
+	output: meson.project_name(),
+	configuration: sysconfig
+)
+# }}}

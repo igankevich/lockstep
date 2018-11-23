@@ -8,8 +8,7 @@ URL:            https://igankevich.github.io/@name@/
 Source0:        @name@-%{version}.tar.xz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
-BuildRequires:  gcc-c++
-BuildRequires:  gtest-devel
+BuildRequires:  gcc
 BuildRequires:  meson
 
 %description
@@ -21,7 +20,7 @@ Record resources consumed by userlann processes
 %autosetup
 
 %build
-%meson --buildtype minsize -Db_lto=true
+%meson -Db_lto=true
 %meson_build
 
 %install

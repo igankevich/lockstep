@@ -94,7 +94,9 @@ field_t step_fields[] = {
 	{"uptime", "%lf", offsetof(step_t, uptime)},
 	{"idle_time", "%lf", offsetof(step_t, idle_time)},
 	{"timestamp", "%lu", offsetof(step_t, timestamp)},
-	{"command", "%s", offsetof(step_t, command)}
+	{"ticks_per_second", "%ld", offsetof(step_t, ticks_per_second)},
+	{"command", "%s", offsetof(step_t, command)},
+	{"executable", "%s", offsetof(step_t, executable)}
 };
 
 int output_fields[sizeof(step_fields) / sizeof(field_t)];
@@ -140,6 +142,9 @@ print_field(char* buf, step_t* step, field_t* field) {
 					break;
 				case 'u':
 					ret = sprintf(buf, field->format, *((long unsigned int*)ptr));
+					break;
+				case 'f':
+					ret = sprintf(buf, field->format, *((double*)ptr));
 					break;
 				case 'l':
 					switch (field->format[3]) {
@@ -263,6 +268,22 @@ is_number(const char* first) {
 }
 
 static int
+collect_executable(int process_dir_fd, const char* directory, step_t* s) {
+	int nbytes = readlinkat(
+		process_dir_fd,
+		"exe",
+		s->executable,
+		sizeof(s->executable)
+	);
+	if (nbytes == -1) {
+		fprintf(stderr, "unable to read /proc/%s/exe link\n", directory);
+		return -1;
+	}
+	s->executable[nbytes] = 0;
+	return 0;
+}
+
+static int
 collect_stat(int proc_fd, const char* directory, step_t* s) {
 	int process_dir_fd = openat(proc_fd, directory, O_PATH);
 	if (process_dir_fd == -1) {
@@ -272,12 +293,12 @@ collect_stat(int proc_fd, const char* directory, step_t* s) {
 	int fd = openat(process_dir_fd, "stat", O_RDONLY);
 	if (fd == -1) {
 		fprintf(stderr, "unable to open /proc/%s/stat file\n", directory);
-		return -1;
+		goto close_process_dir;
 	}
 	int nbytes = read(fd, buf, sizeof(buf)-1);
 	if (nbytes == -1) {
 		fprintf(stderr, "unable to read from /proc/%s/stat file\n", directory);
-		return -1;
+		goto close_fd;
 	}
 	buf[nbytes] = 0;
 //	printf(buf);
@@ -337,16 +358,16 @@ collect_stat(int proc_fd, const char* directory, step_t* s) {
 		&s->env_end,
 		&s->exit_code
 	);
-//	printf("%d %d %s %lu %lu\n", s->user_id, s->group_id, s->command, s->userspace_time, s->kernel_time);
-	if (nfields == 0) {
-		step_write_all(s);
-	} else {
-		step_write(s);
+	if (collect_executable(process_dir_fd, directory, s) == -1) {
+		fprintf(stderr, "failed to collect executable name\n");
+		goto close_fd;
 	}
+close_fd:
 	if (close(fd) == -1) {
 		fprintf(stderr, "unable to close /proc/%s/stat file\n", directory);
 		return -1;
 	}
+close_process_dir:
 	if (close(process_dir_fd) == -1) {
 		fprintf(stderr, "unable to close /proc/%s directory\n", directory);
 		return -1;
@@ -365,10 +386,11 @@ collect_uptime(int proc_fd, step_t* s) {
 	int nbytes = read(fd, buf, sizeof(buf)-1);
 	if (nbytes == -1) {
 		fprintf(stderr, "unable to read from /proc/uptime file\n");
-		return -1;
+		goto close_fd;
 	}
 	buf[nbytes] = 0;
 	sscanf(buf, UPTIME_FORMAT, &s->uptime, &s->idle_time);
+close_fd:
 	if (close(fd) == -1) {
 		fprintf(stderr, "unable to close /proc/uptime file\n");
 		return -1;
@@ -392,6 +414,7 @@ collect_all() {
 		fprintf(stderr, "failed to get ticks per second, using default value: %ld\n", ticks_per_second);
 	}
 	struct dirent* entry;
+	pid_t self = getpid();
 	while (1) {
 		entry = readdir(proc);
 		if (entry == NULL) {
@@ -407,15 +430,24 @@ collect_all() {
 		if (fstatat(proc_fd, entry->d_name, &st, 0) == -1) {
 			perror("fstatat");
 		}
-		if (st.st_uid < min_uid) {
-			continue;
-		}
 		s.user_id = st.st_uid;
 		s.group_id = st.st_gid;
 		if ((st.st_mode & S_IFMT) == S_IFDIR && is_number(entry->d_name)) {
+			pid_t pid = atoi(entry->d_name);
+			if (pid == 0) {
+				continue;
+			}
+			if (st.st_uid < min_uid && pid != self) {
+				continue;
+			}
 			if (collect_stat(proc_fd, entry->d_name, &s) == -1) {
 				fprintf(stderr, "failed to collect data for %s\n", entry->d_name);
 			}
+		}
+		if (nfields == 0) {
+			step_write_all(&s);
+		} else {
+			step_write(&s);
 		}
 	}
 	if (closedir(proc) == -1) {
@@ -429,6 +461,7 @@ help_message(const char* argv0) {
 	printf("  -i INTERVAL    interval in microseconds\n");
 	printf("  -f FIELD1,...  fields\n");
 	printf("  -u             monitor only unpriviledged processes (uid >= 1000)\n");
+	printf("                 (the programme always monitors inself)\n");
 	printf("  -h             help\n");
 	printf("\navailable fields:\n");
 	field_t* first = step_fields;

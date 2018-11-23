@@ -269,6 +269,7 @@ is_number(const char* first) {
 
 static int
 collect_executable(int process_dir_fd, const char* directory, step_t* s) {
+	int ret = 0;
 	int nbytes = readlinkat(
 		process_dir_fd,
 		"exe",
@@ -277,14 +278,17 @@ collect_executable(int process_dir_fd, const char* directory, step_t* s) {
 	);
 	if (nbytes == -1) {
 		fprintf(stderr, "unable to read /proc/%s/exe link\n", directory);
-		return -1;
+		ret = -1;
+		goto end;
 	}
 	s->executable[nbytes] = 0;
-	return 0;
+end:
+	return ret;
 }
 
 static int
 collect_stat(int proc_fd, const char* directory, step_t* s) {
+	int ret = 0;
 	int process_dir_fd = openat(proc_fd, directory, O_PATH);
 	if (process_dir_fd == -1) {
 		fprintf(stderr, "unable to open /proc/%s directory\n", directory);
@@ -293,11 +297,13 @@ collect_stat(int proc_fd, const char* directory, step_t* s) {
 	int fd = openat(process_dir_fd, "stat", O_RDONLY);
 	if (fd == -1) {
 		fprintf(stderr, "unable to open /proc/%s/stat file\n", directory);
+		ret = -1;
 		goto close_process_dir;
 	}
 	int nbytes = read(fd, buf, sizeof(buf)-1);
 	if (nbytes == -1) {
 		fprintf(stderr, "unable to read from /proc/%s/stat file\n", directory);
+		ret = -1;
 		goto close_fd;
 	}
 	buf[nbytes] = 0;
@@ -360,19 +366,21 @@ collect_stat(int proc_fd, const char* directory, step_t* s) {
 	);
 	if (collect_executable(process_dir_fd, directory, s) == -1) {
 		fprintf(stderr, "failed to collect executable name\n");
+		ret = -1;
 		goto close_fd;
 	}
 close_fd:
 	if (close(fd) == -1) {
 		fprintf(stderr, "unable to close /proc/%s/stat file\n", directory);
+		ret = -1;
 		return -1;
 	}
 close_process_dir:
 	if (close(process_dir_fd) == -1) {
 		fprintf(stderr, "unable to close /proc/%s directory\n", directory);
-		return -1;
+		ret = -1;
 	}
-	return 0;
+	return ret;
 }
 
 static int
@@ -442,12 +450,13 @@ collect_all() {
 			}
 			if (collect_stat(proc_fd, entry->d_name, &s) == -1) {
 				fprintf(stderr, "failed to collect data for %s\n", entry->d_name);
+				continue;
 			}
-		}
-		if (nfields == 0) {
-			step_write_all(&s);
-		} else {
-			step_write(&s);
+			if (nfields == 0) {
+				step_write_all(&s);
+			} else {
+				step_write(&s);
+			}
 		}
 	}
 	if (closedir(proc) == -1) {
@@ -460,8 +469,6 @@ help_message(const char* argv0) {
 	printf("usage: %s [-i INTERVAL] [-f FIELD1,FIELD2,...] [-u]\n", argv0);
 	printf("  -i INTERVAL    interval in microseconds\n");
 	printf("  -f FIELD1,...  fields\n");
-	printf("  -u             monitor only unpriviledged processes (uid >= 1000)\n");
-	printf("                 (the programme always monitors inself)\n");
 	printf("  -h             help\n");
 	printf("\navailable fields:\n");
 	field_t* first = step_fields;
@@ -503,7 +510,7 @@ static void
 parse_options(int argc, char* argv[]) {
 	int opt = 0;
 	int help = 0;
-	while ((opt = getopt(argc, argv, "i:f:uh")) != -1) {
+	while ((opt = getopt(argc, argv, "i:f:h")) != -1) {
 		if (opt == 'i') {
 			useconds_t new_interval = atoi(optarg);
 			if (new_interval <= 0) {
@@ -514,9 +521,6 @@ parse_options(int argc, char* argv[]) {
 		}
 		if (opt == 'f') {
 			parse_fields(optarg);
-		}
-		if (opt == 'u') {
-			min_uid = 1000;
 		}
 		if (opt == 'h') {
 			help = 1;

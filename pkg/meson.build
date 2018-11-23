@@ -83,6 +83,11 @@ configure_file(
 # }}}
 # sysconfig {{{
 sysconfig = configuration_data()
+sysconfig.set('name', meson.project_name())
+sysconfig.set('prefix', get_option('prefix'))
+sysconfig.set('bindir', get_option('bindir'))
+sysconfig.set('localstatedir', get_option('localstatedir'))
+sysconfig.set('sysconfdir', get_option('sysconfdir'))
 configure_file(
 	input: meson.project_name() + '.in',
 	output: meson.project_name(),

@@ -253,7 +253,6 @@ step_write_all(step_t* s) {
 		s->idle_time,
 		s->timestamp
 	);
-	fflush(stdout);
 }
 
 static inline int
@@ -537,6 +536,7 @@ parse_options(int argc, char* argv[]) {
 }
 
 int main(int argc, char* argv[]) {
+	setlinebuf(stdout);
 	parse_options(argc, argv);
 	while (1) {
 		collect_all();

@@ -465,9 +465,10 @@ collect_all() {
 
 static void
 help_message(const char* argv0) {
-	printf("usage: %s [-i INTERVAL] [-f FIELD1,FIELD2,...] [-u]\n", argv0);
+	printf("usage: %s [-i INTERVAL] [-f FIELD1,FIELD2,...] [-o FILE]\n", argv0);
 	printf("  -i INTERVAL    interval in microseconds\n");
 	printf("  -f FIELD1,...  fields\n");
+	printf("  -o FILE        redirect output to FILE\n");
 	printf("  -h             help\n");
 	printf("\navailable fields:\n");
 	field_t* first = step_fields;
@@ -509,20 +510,28 @@ static void
 parse_options(int argc, char* argv[]) {
 	int opt = 0;
 	int help = 0;
-	while ((opt = getopt(argc, argv, "i:f:h")) != -1) {
+	while ((opt = getopt(argc, argv, "i:f:o:h")) != -1) {
 		if (opt == 'i') {
 			useconds_t new_interval = atoi(optarg);
 			if (new_interval <= 0) {
 				fprintf(stderr, "bad interval %u\n", new_interval);
-			} else {
-				interval = new_interval;
+				exit(1);
 			}
+			interval = new_interval;
 		}
 		if (opt == 'f') {
 			parse_fields(optarg);
 		}
 		if (opt == 'h') {
 			help = 1;
+		}
+		if (opt == 'o') {
+			int fd = open(optarg, O_CREAT|O_APPEND|O_WRONLY, 0644);
+			if (dup2(fd, STDOUT_FILENO) == -1) {
+				fprintf(stderr, "failed to redirect output to %s\n", optarg);
+				close(fd);
+				exit(1);
+			}
 		}
 		if (opt == '?') {
 			help_message(argv[0]);

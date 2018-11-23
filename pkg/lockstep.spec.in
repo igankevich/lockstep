@@ -35,6 +35,8 @@ Record resources consumed by userlann processes
 %files
 %defattr(0755,root,root,0755)
 %{_bindir}/lockstep
+%{_var}/log/lockstep
+%defattr(0644,root,root,0755)
 %{_sysconfdir}/sysconfig/lockstep
 %{_unitdir}/lockstep.service
 

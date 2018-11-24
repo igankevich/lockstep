@@ -435,7 +435,8 @@ collect_all() {
 		}
 		struct stat st;
 		if (fstatat(proc_fd, entry->d_name, &st, 0) == -1) {
-			perror("fstatat");
+			fprintf(stderr, "failed to stat %s\n", entry->d_name);
+			continue;
 		}
 		s.user_id = st.st_uid;
 		s.group_id = st.st_gid;

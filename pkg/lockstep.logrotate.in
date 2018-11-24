@@ -1,0 +1,13 @@
+@localstatedir@/log/@name@/@name@.log {
+	monthly
+	rotate 6
+	compress
+	copytruncate
+	extension .log
+	dateext
+	dateformat --%Y-%m
+	dateyesterday
+	ifempty
+	nomissingok
+	nomail
+}

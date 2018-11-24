@@ -25,10 +25,13 @@ Record resources consumed by userlann processes
 
 %install
 %{meson_install}
-%{__mkdir_p} %{buildroot}%{_sysconfdir}/sysconfig %{buildroot}%{_unitdir}
-%{__install} -m644 %{_vpath_builddir}/pkg/lockstep %{buildroot}%{_sysconfdir}/sysconfig
-%{__install} -m644 %{_vpath_builddir}/pkg/lockstep.service %{buildroot}%{_unitdir}
+%{__mkdir_p} %{buildroot}%{_sysconfdir}/sysconfig
+%{__mkdir_p} %{buildroot}%{_unitdir}
+%{__mkdir_p} %{buildroot}%{_sysconfdir}/logrotate.d
 %{__mkdir_p} %{buildroot}%{_var}/log/lockstep
+%{__install} -m644 %{_vpath_builddir}/pkg/lockstep.sysconfig %{buildroot}%{_sysconfdir}/sysconfig
+%{__install} -m644 %{_vpath_builddir}/pkg/lockstep.service %{buildroot}%{_unitdir}
+%{__install} -m644 %{_vpath_builddir}/pkg/lockstep.logrotate %{buildroot}%{_sysconfdir}/logrotate.d
 
 %check
 %meson_test
@@ -38,10 +41,13 @@ Record resources consumed by userlann processes
 %{_bindir}/lockstep
 %{_var}/log/lockstep
 %defattr(0644,root,root,0755)
-%{_sysconfdir}/sysconfig/lockstep
+%config(noreplace) %{_sysconfdir}/sysconfig/lockstep
+%config(noreplace) %{_sysconfdir}/logrotate.d/lockstep
 %{_unitdir}/lockstep.service
 
 %changelog
 
+* Sat Nov 24 2018 Ivan Gankevich <i.gankevich@spbu.ru> 0.1.9-1
+Logrotate and systemd configuration.
 * Fri Nov 23 2018 Ivan Gankevich <i.gankevich@spbu.ru> 0.1.0-1
 Packaged everything.

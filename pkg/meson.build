@@ -68,29 +68,18 @@ if ninja.found()
 	)
 endif
 # }}}
-# systemd service {{{
-service = configuration_data()
-service.set('name', meson.project_name())
-service.set('prefix', get_option('prefix'))
-service.set('bindir', get_option('bindir'))
-service.set('localstatedir', get_option('localstatedir'))
-service.set('sysconfdir', get_option('sysconfdir'))
-configure_file(
-	input: meson.project_name() + '.service.in',
-	output: meson.project_name() + '.service',
-	configuration: service
-)
-# }}}
-# sysconfig {{{
-sysconfig = configuration_data()
-sysconfig.set('name', meson.project_name())
-sysconfig.set('prefix', get_option('prefix'))
-sysconfig.set('bindir', get_option('bindir'))
-sysconfig.set('localstatedir', get_option('localstatedir'))
-sysconfig.set('sysconfdir', get_option('sysconfdir'))
-configure_file(
-	input: meson.project_name() + '.in',
-	output: meson.project_name(),
-	configuration: sysconfig
-)
+# systemd, sysconfig, logrotate {{{
+foreach suffix : ['service', 'sysconfig', 'logrotate']
+	conf = configuration_data()
+	conf.set('name', meson.project_name())
+	conf.set('prefix', get_option('prefix'))
+	conf.set('bindir', get_option('bindir'))
+	conf.set('localstatedir', get_option('localstatedir'))
+	conf.set('sysconfdir', get_option('sysconfdir'))
+	configure_file(
+		input: meson.project_name() + '.' + suffix + '.in',
+		output: meson.project_name() + '.' + suffix,
+		configuration: conf
+	)
+endforeach
 # }}}

@@ -25,6 +25,10 @@
 
 #define UPTIME_FORMAT "%lf %lf"
 
+#define NETSTAT_FORMAT "IpExt: %*u %*u %*u %*u %*u %*u %lu %lu %*u %*u %*u %*u %*u %*u %*u %*u %*u"
+
+#define IO_FORMAT "rchar: %*u\nwchar: %*u\nsyscr: %*u\nsyscw: %*u\nread_bytes: %lu\nwrite_bytes: %lu\ncancelled_write_bytes: %lu"
+
 #define STEP_FORMAT \
 		"%d|%s|%c|%d|%d|%d|%d|%d|%u|%lu|%lu|%lu|%lu|%lu|%lu|%ld|%ld|%ld|%ld|%ld|" \
 		"%ld|%llu|%lu|%ld|%lu|%lu|%lu|%lu|%lu|%lu|%lu|%lu|%lu|%lu|%lu|%lu|%lu|%d|%d|" \
@@ -96,7 +100,12 @@ field_t step_fields[] = {
 	{"timestamp", "%lu", offsetof(step_t, timestamp)},
 	{"ticks_per_second", "%ld", offsetof(step_t, ticks_per_second)},
 	{"command", "%s", offsetof(step_t, command)},
-	{"executable", "%s", offsetof(step_t, executable)}
+	{"executable", "%s", offsetof(step_t, executable)},
+	{"read_bytes", "%lu", offsetof(step_t, io) + offsetof(io_step_t, read_bytes)},
+	{"write_bytes", "%lu", offsetof(step_t, io) + offsetof(io_step_t, write_bytes)},
+	{"cancelled_write_bytes", "%lu", offsetof(step_t, io) + offsetof(io_step_t, cancelled_write_bytes)},
+	{"in_octets", "%lu", offsetof(step_t, network) + offsetof(network_step_t, in_octets)},
+	{"out_octets", "%lu", offsetof(step_t, network) + offsetof(network_step_t, out_octets)}
 };
 
 int output_fields[sizeof(step_fields) / sizeof(field_t)];
@@ -191,70 +200,6 @@ step_write(step_t* s) {
 	puts(buf);
 }
 
-static inline void
-step_write_all(step_t* s) {
-	printf(
-		STEP_FORMAT,
-		s->process_id,
-		s->command,
-		s->state,
-		s->parent_process_id,
-		s->process_group_id,
-		s->session_id,
-		s->tty_number,
-		s->tty_process_group_id,
-		s->flags,
-		s->minor_faults,
-		s->child_minor_faults,
-		s->major_faults,
-		s->child_major_faults,
-		s->userspace_time,
-		s->kernel_time,
-		s->child_userspace_time,
-		s->child_kernel_time,
-		s->priority,
-		s->nice,
-		s->num_threads,
-		s->unused,
-		s->start_time,
-		s->virtual_memory_size,
-		s->resident_set_size,
-		s->resident_set_limit,
-		s->code_segment_start,
-		s->code_segment_end,
-		s->stack_start,
-		s->stack_pointer,
-		s->instruction_pointer,
-		s->signals,
-		s->blocked_signals,
-		s->ignored_signal,
-		s->caught_signal,
-		s->wait_channel,
-		s->num_swapped_pages,
-		s->children_num_swapped_pages,
-		s->exit_signal,
-		s->processor,
-		s->realtime_priority,
-		s->policy,
-		s->cumulative_block_input_output_delay,
-		s->guest_time,
-		s->child_guest_time,
-		s->data_start,
-		s->data_end,
-		s->brk_start,
-		s->arg_start,
-		s->arg_end,
-		s->env_start,
-		s->env_end,
-		s->exit_code,
-		s->user_id,
-		s->group_id,
-		s->uptime,
-		s->idle_time,
-		s->timestamp
-	);
-}
-
 static inline int
 is_number(const char* first) {
 	while (*first != '\0') {
@@ -286,20 +231,14 @@ end:
 }
 
 static int
-collect_stat(int proc_fd, const char* directory, step_t* s) {
+collect_stat(int process_dir_fd, const char* directory, step_t* s) {
 	int ret = 0;
-	int process_dir_fd = openat(proc_fd, directory, O_PATH);
-	if (process_dir_fd == -1) {
-		fprintf(stderr, "unable to open /proc/%s directory\n", directory);
-		return -1;
-	}
 	int fd = openat(process_dir_fd, "stat", O_RDONLY);
 	if (fd == -1) {
 		fprintf(stderr, "unable to open /proc/%s/stat file\n", directory);
-		ret = -1;
-		goto close_process_dir;
+		return -1;
 	}
-	int nbytes = read(fd, buf, sizeof(buf)-1);
+	ssize_t nbytes = read(fd, buf, sizeof(buf)-1);
 	if (nbytes == -1) {
 		fprintf(stderr, "unable to read from /proc/%s/stat file\n", directory);
 		ret = -1;
@@ -374,11 +313,6 @@ close_fd:
 		ret = -1;
 		return -1;
 	}
-close_process_dir:
-	if (close(process_dir_fd) == -1) {
-		fprintf(stderr, "unable to close /proc/%s directory\n", directory);
-		ret = -1;
-	}
 	return ret;
 }
 
@@ -390,7 +324,7 @@ collect_uptime(int proc_fd, step_t* s) {
 		return -1;
 	}
 	char buf[128];
-	int nbytes = read(fd, buf, sizeof(buf)-1);
+	ssize_t nbytes = read(fd, buf, sizeof(buf)-1);
 	if (nbytes == -1) {
 		fprintf(stderr, "unable to read from /proc/uptime file\n");
 		goto close_fd;
@@ -403,6 +337,81 @@ close_fd:
 		return -1;
 	}
 	return 0;
+}
+
+static int
+collect_io(int process_dir_fd, const char* directory, step_t* s) {
+	int ret = 0;
+	int fd = openat(process_dir_fd, "io", O_RDONLY);
+	if (fd == -1) {
+		fprintf(stderr, "unable to open /proc/%s/io file\n", directory);
+		return -1;
+	}
+	char buf[4096];
+	ssize_t nbytes = read(fd, buf, sizeof(buf)-1);
+	if (nbytes == -1) {
+		fprintf(stderr, "unable to read from /proc/%s/io file\n", directory);
+		ret = -1;
+		goto close_fd;
+	}
+	buf[nbytes] = 0;
+	sscanf(
+		buf,
+		IO_FORMAT,
+		&s->io.read_bytes,
+		&s->io.write_bytes,
+		&s->io.cancelled_write_bytes
+	);
+close_fd:
+	if (close(fd) == -1) {
+		fprintf(stderr, "unable to close /proc/%s/io file\n", directory);
+		return -1;
+	}
+	return ret;
+}
+
+static char*
+find_newline(char* first, char* last) {
+	while (first != last) {
+		if (*first++ == '\n') {
+			break;
+		}
+	}
+	return first;
+}
+
+static int
+collect_network(int proc_fd, step_t* s) {
+	int ret = 0;
+	int fd = openat(proc_fd, "net/netstat", O_RDONLY);
+	if (fd == -1) {
+		fprintf(stderr, "unable to open /proc/net/netstat file\n");
+		return -1;
+	}
+	char buf[4096];
+	ssize_t nbytes = read(fd, buf, sizeof(buf)-1);
+	if (nbytes == -1) {
+		fprintf(stderr, "unable to read from /proc/net/netstat file\n");
+		ret = -1;
+		goto close_fd;
+	}
+	buf[nbytes] = 0;
+	char* first = buf;
+	char* last = first + nbytes;
+	for	(int i=0; i<3; ++i) {
+		first = find_newline(first, last);
+	}
+	if (first == last) {
+		ret = -1;
+		goto close_fd;
+	}
+	sscanf(first, NETSTAT_FORMAT, &s->network.in_octets, &s->network.out_octets);
+close_fd:
+	if (close(fd) == -1) {
+		fprintf(stderr, "unable to close /proc/net/netstat file\n");
+		return -1;
+	}
+	return ret;
 }
 
 static void
@@ -448,13 +457,29 @@ collect_all() {
 			if (st.st_uid < min_uid && pid != self) {
 				continue;
 			}
-			if (collect_stat(proc_fd, entry->d_name, &s) == -1) {
-				fprintf(stderr, "failed to collect data for %s\n", entry->d_name);
+			const char* proc_dir_name = entry->d_name;
+			int process_dir_fd = openat(proc_fd, proc_dir_name, O_PATH);
+			if (process_dir_fd == -1) {
+				fprintf(stderr, "unable to open /proc/%s directory\n", proc_dir_name);
 				continue;
 			}
-			if (nfields == 0) {
-				step_write_all(&s);
-			} else {
+			if (collect_stat(process_dir_fd, proc_dir_name, &s) == -1) {
+				fprintf(stderr, "failed to collect data for %s\n", proc_dir_name);
+				goto close_process_dir;
+			}
+			if (collect_io(process_dir_fd, proc_dir_name, &s) == -1) {
+				fprintf(stderr, "failed to collect io data for %s\n", proc_dir_name);
+				goto close_process_dir;
+			}
+			if (collect_network(process_dir_fd, &s) == -1) {
+				fprintf(stderr, "failed to collect network data for %s\n", proc_dir_name);
+				goto close_process_dir;
+			}
+close_process_dir:
+			if (close(process_dir_fd) == -1) {
+				fprintf(stderr, "unable to close /proc/%s directory\n", proc_dir_name);
+			}
+			if (nfields > 0) {
 				step_write(&s);
 			}
 		}

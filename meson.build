@@ -1,7 +1,7 @@
 project(
 	'lockstep',
 	'c',
-	version: '0.1.9',
+	version: '0.2.0',
 	meson_version: '>=0.45',
 	default_options: ['c_std=c11']
 )

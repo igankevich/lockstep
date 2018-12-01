@@ -1,1 +1,1 @@
-LOCKSTEP_ARGS="-i 5000000 -o @localstatedir@/log/@name@/@name@.log -f pid,ppid,start_time,timestamp,uptime,user,kernel_time,userspace_time,resident_set_size,virtual_memory_size,executable,ticks_per_second"
+LOCKSTEP_ARGS="-i 5000000 -o @localstatedir@/log/@name@/@name@.log -f pid,ppid,start_time,timestamp,uptime,user,kernel_time,userspace_time,resident_set_size,virtual_memory_size,executable,ticks_per_second,read_bytes,write_bytes,cancelled_write_bytes,in_octets,out_octets"

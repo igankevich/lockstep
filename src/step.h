@@ -2,6 +2,17 @@
 #define STEP_H
 
 typedef struct {
+	unsigned long int in_octets;
+	unsigned long int out_octets;
+} network_step_t;
+
+typedef struct {
+	unsigned long int read_bytes;
+	unsigned long int write_bytes;
+	unsigned long int cancelled_write_bytes;
+} io_step_t;
+
+typedef struct {
 	int process_id;
 	char state;
 	int parent_process_id;
@@ -61,6 +72,8 @@ typedef struct {
 	time_t timestamp;
 	char command[4096];
 	char executable[4096];
+	io_step_t io;
+	network_step_t network;
 } step_t;
 
 

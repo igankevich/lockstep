@@ -1,0 +1,6 @@
+option(
+	'with_nvml',
+	type: 'boolean',
+	value: false,
+	description: 'Enable NVIDIA GPU accounting via NVML'
+)

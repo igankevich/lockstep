@@ -40,16 +40,15 @@ if rpm_setup_tree.found()
 endif
 rpm_build = find_program('rpmbuild', required: false)
 if rpm_build.found()
-	run_target(
-		'rpm-build',
-		command: [
-			rpm_build,
-			'-ba',
-			join_paths(meson.current_build_dir(), meson.project_name() + '.spec'),
-			'--define',
-			'_sourcedir ' + meson.build_root()
-		]
-	)
+	rpm_build_args = [
+		rpm_build,
+		'-ba',
+		join_paths(meson.current_build_dir(), meson.project_name() + '.spec'),
+		'--define',
+		'_sourcedir ' + meson.build_root()
+	]
+	run_target('rpm-build', command: rpm_build_args)
+	run_target('rpm-build-nvml', command: rpm_build_args + ['--with', 'nvml'])
 endif
 # }}}
 # RPM target {{{
@@ -63,19 +62,50 @@ if ninja.found()
 			meson.build_root(),
 			'rpm-setup-tree',
 			'rpm-archive',
-			'rpm-build'
+			'rpm-build',
+			'rpm-build-nvml'
 		]
 	)
 endif
 # }}}
 # systemd, sysconfig, logrotate {{{
-foreach suffix : ['service', 'sysconfig', 'logrotate']
+lockstep_fields = [
+	'pid',
+	'ppid',
+	'start_time',
+	'timestamp',
+	'uptime',
+	'user',
+	'kernel_time',
+	'userspace_time',
+	'resident_set_size',
+	'virtual_memory_size',
+	'executable',
+	'ticks_per_second',
+	'read_bytes',
+	'write_bytes',
+	'cancelled_write_bytes',
+	'in_octets',
+	'out_octets',
+]
+lockstep_gpu_fields = [
+	'gpu_utilisation',
+	'gpu_memory_utilisation',
+	'gpu_max_memory_usage',
+	'gpu_time_ms',
+]
+foreach suffix : ['service', 'sysconfig', 'sysconfig.gpu', 'logrotate']
 	conf = configuration_data()
 	conf.set('name', meson.project_name())
 	conf.set('prefix', get_option('prefix'))
 	conf.set('bindir', get_option('bindir'))
 	conf.set('localstatedir', get_option('localstatedir'))
 	conf.set('sysconfdir', get_option('sysconfdir'))
+	if suffix == 'sysconfig.gpu'
+		conf.set('lockstep_fields', ','.join(lockstep_fields + lockstep_gpu_fields))
+	else
+		conf.set('lockstep_fields', ','.join(lockstep_fields))
+	endif
 	configure_file(
 		input: meson.project_name() + '.' + suffix + '.in',
 		output: meson.project_name() + '.' + suffix,

@@ -6,6 +6,7 @@
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,8 +14,13 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "config.h"
+#if defined(LOCKSTEP_WITH_NVML)
+#include "gpu.h"
+#endif
 #include "step.h"
 #include "field.h"
+
 
 #define STAT_FORMAT \
 		"%d (%16[^)]) %c %d %d %d %d %d %u %lu %lu %lu %lu %lu %lu %ld %ld %ld %ld %ld " \
@@ -37,9 +43,10 @@
 		"%lf|%lf|" \
 		"%lu"
 
+char buf[4096*4];
 useconds_t interval = 1000000;
 uid_t min_uid = 1000;
-char buf[4096*4];
+int running = 1;
 
 field_t step_fields[] = {
 	{"pid", "%d", offsetof(step_t, process_id)},
@@ -106,6 +113,12 @@ field_t step_fields[] = {
 	{"cancelled_write_bytes", "%lu", offsetof(step_t, io) + offsetof(io_step_t, cancelled_write_bytes)},
 	{"in_octets", "%lu", offsetof(step_t, network) + offsetof(network_step_t, in_octets)},
 	{"out_octets", "%lu", offsetof(step_t, network) + offsetof(network_step_t, out_octets)}
+	#if defined(LOCKSTEP_WITH_NVML)
+	, {"gpu_utilisation", "%u", offsetof(step_t, gpu) + offsetof(gpu_step_t, gpu_utilisation)}
+	, {"gpu_memory_utilisation", "%u", offsetof(step_t, gpu) + offsetof(gpu_step_t, memory_utilization)}
+	, {"gpu_max_memory_usage", "%lu", offsetof(step_t, gpu) + offsetof(gpu_step_t, max_memory_usage)}
+	, {"gpu_time_ms", "%lu", offsetof(step_t, gpu) + offsetof(gpu_step_t, time_ms)}
+	#endif
 };
 
 int output_fields[sizeof(step_fields) / sizeof(field_t)];
@@ -475,6 +488,12 @@ collect_all() {
 				fprintf(stderr, "failed to collect network data for %s\n", proc_dir_name);
 				goto close_process_dir;
 			}
+			#if defined(LOCKSTEP_WITH_NVML)
+			if (collect_gpu(pid, &s.gpu) == -1) {
+				fprintf(stderr, "failed to collect gpu data for %s\n", proc_dir_name);
+				goto close_process_dir;
+			}
+			#endif
 close_process_dir:
 			if (close(process_dir_fd) == -1) {
 				fprintf(stderr, "unable to close /proc/%s directory\n", proc_dir_name);
@@ -570,12 +589,77 @@ parse_options(int argc, char* argv[]) {
 	}
 }
 
+static void
+stop(int signal) {
+	running = 0;
+}
+
+static void
+signal_handlers() {
+	int signals[] = {SIGINT, SIGTERM, SIGHUP, SIGPIPE, SIGUSR1, SIGUSR2, SIGALRM};
+	const int nsignals = sizeof(signals) / sizeof(int);
+	for (int i=0; i<nsignals; ++i) {
+		struct sigaction s = {0};
+		s.sa_handler = stop;
+		if (sigaction(signals[i], &s, NULL) == -1) {
+			perror("failed to install signal handler");
+			exit(1);
+		}
+	}
+}
+
 int main(int argc, char* argv[]) {
+	signal_handlers();
 	setlinebuf(stdout);
 	parse_options(argc, argv);
-	while (1) {
+	#if defined(LOCKSTEP_WITH_NVML)
+    nvmlReturn_t result;
+	result = nvmlInit();
+	if (result != NVML_SUCCESS) {
+		fprintf(stderr, "failed to initialise NVML: %s\n", nvmlErrorString(result));
+		return 1;
+	}
+    result = nvmlDeviceGetCount(&gpu_device_count);
+	if (result != NVML_SUCCESS) {
+		fprintf(stderr, "failed to get device count: %s\n", nvmlErrorString(result));
+		goto nvml_shutdown;
+	}
+	for (unsigned int i=0; i<gpu_device_count; ++i) {
+		result = nvmlDeviceGetHandleByIndex(i, gpu_devices + i);
+		if (result != NVML_SUCCESS) {
+			fprintf(stderr, "failed to get device handle: %s\n", nvmlErrorString(result));
+			goto nvml_shutdown;
+		}
+		nvmlEnableState_t state;
+		result = nvmlDeviceGetAccountingMode(gpu_devices[i], &state);
+		if (result != NVML_SUCCESS) {
+			fprintf(stderr, "failed to get accounting mode: %s\n", nvmlErrorString(result));
+			goto nvml_shutdown;
+		}
+		if (state == NVML_FEATURE_DISABLED) {
+			result = nvmlDeviceSetAccountingMode(gpu_devices[i], NVML_FEATURE_ENABLED);
+			if (result != NVML_SUCCESS) {
+				fprintf(stderr, "failed to enable accounting mode: %s\n", nvmlErrorString(result));
+				if (result == NVML_ERROR_NO_PERMISSION) {
+					fprintf(stderr, "run as root or enable it manually\n");
+				}
+				goto nvml_shutdown;
+			}
+			fprintf(stderr, "accounting mode is enabled\n");
+		}
+	}
+	#endif
+	while (running) {
 		collect_all();
 		usleep(interval);
 	}
+	#if defined(LOCKSTEP_WITH_NVML)
+nvml_shutdown:
+	result = nvmlShutdown();
+	if (result != NVML_SUCCESS) {
+		fprintf(stderr, "failed to shutdowm NVML: %s\n", nvmlErrorString(result));
+		return 1;
+	}
+	#endif
 	return 0;
 }

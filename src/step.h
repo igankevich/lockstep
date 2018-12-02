@@ -1,6 +1,8 @@
 #ifndef STEP_H
 #define STEP_H
 
+#include "config.h"
+
 typedef struct {
 	unsigned long int in_octets;
 	unsigned long int out_octets;
@@ -74,6 +76,9 @@ typedef struct {
 	char executable[4096];
 	io_step_t io;
 	network_step_t network;
+	#if defined(LOCKSTEP_WITH_NVML)
+	gpu_step_t gpu;
+	#endif
 } step_t;
 
 

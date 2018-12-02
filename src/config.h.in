@@ -1,0 +1,6 @@
+#ifndef CONFIG_H_IN
+#define CONFIG_H_IN
+
+#mesondefine LOCKSTEP_WITH_NVML
+
+#endif // vim:filetype=c

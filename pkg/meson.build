@@ -89,7 +89,7 @@ lockstep_fields = [
 	'out_octets',
 ]
 lockstep_nvml_fields = [
-	'nvml_utilisation',
+	'nvml_gpu_utilisation',
 	'nvml_memory_utilisation',
 	'nvml_max_memory_usage',
 	'nvml_time_ms',

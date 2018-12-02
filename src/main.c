@@ -114,7 +114,7 @@ field_t step_fields[] = {
 	{"in_octets", "%lu", offsetof(step_t, network) + offsetof(network_step_t, in_octets)},
 	{"out_octets", "%lu", offsetof(step_t, network) + offsetof(network_step_t, out_octets)}
 	#if defined(LOCKSTEP_WITH_NVML)
-	, {"nvml_utilisation", "%u", offsetof(step_t, nvml) + offsetof(nvml_step_t, gpu_utilisation)}
+	, {"nvml_gpu_utilisation", "%u", offsetof(step_t, nvml) + offsetof(nvml_step_t, gpu_utilisation)}
 	, {"nvml_memory_utilisation", "%u", offsetof(step_t, nvml) + offsetof(nvml_step_t, memory_utilization)}
 	, {"nvml_max_memory_usage", "%lu", offsetof(step_t, nvml) + offsetof(nvml_step_t, max_memory_usage)}
 	, {"nvml_time_ms", "%lu", offsetof(step_t, nvml) + offsetof(nvml_step_t, time_ms)}

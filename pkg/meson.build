@@ -88,21 +88,21 @@ lockstep_fields = [
 	'in_octets',
 	'out_octets',
 ]
-lockstep_gpu_fields = [
-	'gpu_utilisation',
-	'gpu_memory_utilisation',
-	'gpu_max_memory_usage',
-	'gpu_time_ms',
+lockstep_nvml_fields = [
+	'nvml_utilisation',
+	'nvml_memory_utilisation',
+	'nvml_max_memory_usage',
+	'nvml_time_ms',
 ]
-foreach suffix : ['service', 'sysconfig', 'sysconfig.gpu', 'logrotate']
+foreach suffix : ['service', 'sysconfig', 'sysconfig.nvml', 'logrotate']
 	conf = configuration_data()
 	conf.set('name', meson.project_name())
 	conf.set('prefix', get_option('prefix'))
 	conf.set('bindir', get_option('bindir'))
 	conf.set('localstatedir', get_option('localstatedir'))
 	conf.set('sysconfdir', get_option('sysconfdir'))
-	if suffix == 'sysconfig.gpu'
-		conf.set('lockstep_fields', ','.join(lockstep_fields + lockstep_gpu_fields))
+	if suffix == 'sysconfig.nvml'
+		conf.set('lockstep_fields', ','.join(lockstep_fields + lockstep_nvml_fields))
 	else
 		conf.set('lockstep_fields', ','.join(lockstep_fields))
 	endif

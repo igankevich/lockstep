@@ -16,7 +16,7 @@
 
 #include "config.h"
 #if defined(LOCKSTEP_WITH_NVML)
-#include "gpu.h"
+#include "nvml_step.h"
 #endif
 #include "step.h"
 #include "field.h"
@@ -114,10 +114,10 @@ field_t step_fields[] = {
 	{"in_octets", "%lu", offsetof(step_t, network) + offsetof(network_step_t, in_octets)},
 	{"out_octets", "%lu", offsetof(step_t, network) + offsetof(network_step_t, out_octets)}
 	#if defined(LOCKSTEP_WITH_NVML)
-	, {"gpu_utilisation", "%u", offsetof(step_t, gpu) + offsetof(gpu_step_t, gpu_utilisation)}
-	, {"gpu_memory_utilisation", "%u", offsetof(step_t, gpu) + offsetof(gpu_step_t, memory_utilization)}
-	, {"gpu_max_memory_usage", "%lu", offsetof(step_t, gpu) + offsetof(gpu_step_t, max_memory_usage)}
-	, {"gpu_time_ms", "%lu", offsetof(step_t, gpu) + offsetof(gpu_step_t, time_ms)}
+	, {"nvml_utilisation", "%u", offsetof(step_t, nvml) + offsetof(nvml_step_t, gpu_utilisation)}
+	, {"nvml_memory_utilisation", "%u", offsetof(step_t, nvml) + offsetof(nvml_step_t, memory_utilization)}
+	, {"nvml_max_memory_usage", "%lu", offsetof(step_t, nvml) + offsetof(nvml_step_t, max_memory_usage)}
+	, {"nvml_time_ms", "%lu", offsetof(step_t, nvml) + offsetof(nvml_step_t, time_ms)}
 	#endif
 };
 
@@ -489,8 +489,8 @@ collect_all() {
 				goto close_process_dir;
 			}
 			#if defined(LOCKSTEP_WITH_NVML)
-			if (collect_gpu(pid, &s.gpu) == -1) {
-				fprintf(stderr, "failed to collect gpu data for %s\n", proc_dir_name);
+			if (collect_nvml(pid, &s.nvml) == -1) {
+				fprintf(stderr, "failed to collect nvml data for %s\n", proc_dir_name);
 				goto close_process_dir;
 			}
 			#endif
@@ -619,25 +619,25 @@ int main(int argc, char* argv[]) {
 		fprintf(stderr, "failed to initialise NVML: %s\n", nvmlErrorString(result));
 		return 1;
 	}
-    result = nvmlDeviceGetCount(&gpu_device_count);
+    result = nvmlDeviceGetCount(&nvml_device_count);
 	if (result != NVML_SUCCESS) {
 		fprintf(stderr, "failed to get device count: %s\n", nvmlErrorString(result));
 		goto nvml_shutdown;
 	}
-	for (unsigned int i=0; i<gpu_device_count; ++i) {
-		result = nvmlDeviceGetHandleByIndex(i, gpu_devices + i);
+	for (unsigned int i=0; i<nvml_device_count; ++i) {
+		result = nvmlDeviceGetHandleByIndex(i, nvml_devices + i);
 		if (result != NVML_SUCCESS) {
 			fprintf(stderr, "failed to get device handle: %s\n", nvmlErrorString(result));
 			goto nvml_shutdown;
 		}
 		nvmlEnableState_t state;
-		result = nvmlDeviceGetAccountingMode(gpu_devices[i], &state);
+		result = nvmlDeviceGetAccountingMode(nvml_devices[i], &state);
 		if (result != NVML_SUCCESS) {
 			fprintf(stderr, "failed to get accounting mode: %s\n", nvmlErrorString(result));
 			goto nvml_shutdown;
 		}
 		if (state == NVML_FEATURE_DISABLED) {
-			result = nvmlDeviceSetAccountingMode(gpu_devices[i], NVML_FEATURE_ENABLED);
+			result = nvmlDeviceSetAccountingMode(nvml_devices[i], NVML_FEATURE_ENABLED);
 			if (result != NVML_SUCCESS) {
 				fprintf(stderr, "failed to enable accounting mode: %s\n", nvmlErrorString(result));
 				if (result == NVML_ERROR_NO_PERMISSION) {

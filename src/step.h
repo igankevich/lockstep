@@ -77,7 +77,7 @@ typedef struct {
 	io_step_t io;
 	network_step_t network;
 	#if defined(LOCKSTEP_WITH_NVML)
-	gpu_step_t gpu;
+	nvml_step_t nvml;
 	#endif
 } step_t;
 

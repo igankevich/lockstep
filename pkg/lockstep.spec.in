@@ -1,16 +1,28 @@
 %bcond_with nvml
+%if %{with nvml}
+Name:           @name@-nvml
+%else
 Name:           @name@
+%endif
 Version:        @version@
 Release:        @release@%{?dist}
 Summary:        Record resources consumed by userlann processes
 
 License:        @license@
-URL:            https://igankevich.github.io/@name@/ 
+URL:            https://github.com/igankevich
 Source0:        @name@-%{version}.tar.xz
-BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+BuildRoot:      %{_tmppath}/@name@-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires:  gcc
 BuildRequires:  meson
+
+%if %{with nvml}
+Obsoletes:      @name@
+%else
+Obsoletes:      @name@-nvml
+%endif
+
+Provides:       @name@
 
 %description
 Record resources consumed by userland processes
@@ -18,7 +30,7 @@ Record resources consumed by userland processes
 %global debug_package %{nil}
 
 %prep
-%autosetup
+%autosetup -n @name@-%{version}
 
 %build
 %meson -Db_lto=true %{?with_nvml:-Dwith_nvml=true}
@@ -30,7 +42,11 @@ Record resources consumed by userland processes
 %{__mkdir_p} %{buildroot}%{_unitdir}
 %{__mkdir_p} %{buildroot}%{_sysconfdir}/logrotate.d
 %{__mkdir_p} %{buildroot}%{_var}/log/lockstep
+%if %{with nvml}
+%{__install} -m644 %{_vpath_builddir}/pkg/lockstep.sysconfig.nvml %{buildroot}%{_sysconfdir}/sysconfig/lockstep
+%else
 %{__install} -m644 %{_vpath_builddir}/pkg/lockstep.sysconfig %{buildroot}%{_sysconfdir}/sysconfig/lockstep
+%endif
 %{__install} -m644 %{_vpath_builddir}/pkg/lockstep.service %{buildroot}%{_unitdir}
 %{__install} -m644 %{_vpath_builddir}/pkg/lockstep.logrotate %{buildroot}%{_sysconfdir}/logrotate.d/lockstep
 

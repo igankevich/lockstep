@@ -17,9 +17,9 @@ BuildRequires:  gcc
 BuildRequires:  meson
 
 %if %{with nvml}
-Obsoletes:      @name@
+Conflicts:      @name@
 %else
-Obsoletes:      @name@-nvml
+Conflicts:      @name@-nvml
 %endif
 
 Provides:       @name@

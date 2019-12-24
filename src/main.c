@@ -625,13 +625,6 @@ close_fd:
 }
 
 static void
-collect_sys(time_t timestamp) {
-    if (system_fields & SYSTEM_HWMON) {
-        collect_hwmon(timestamp);
-    }
-}
-
-static void
 help_message(const char* argv0) {
     printf("usage: %s [-i interval] [-f field...] [-o file] [-F field...] [-O file]\n", argv0);
     fputs("  -i interval  interval in microseconds\n", stdout);
@@ -819,8 +812,8 @@ int main(int argc, char* argv[]) {
     #endif
     while (running) {
         time_t timestamp = time(NULL);
-        collect_proc(timestamp);
-        collect_sys(timestamp);
+        if (num_process_fields != 0) { collect_proc(timestamp); }
+        if (system_fields & SYSTEM_HWMON) { collect_hwmon(timestamp); }
         usleep(interval);
     }
     #if defined(LOCKSTEP_WITH_NVML)

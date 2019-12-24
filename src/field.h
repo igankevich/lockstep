@@ -5,6 +5,6 @@ typedef struct {
 	char name[128];
 	char format[4];
 	int offset;
-} field_t;
+} field_type;
 
 #endif // vim:filetype=c

@@ -79,7 +79,7 @@ typedef struct {
 	#if defined(LOCKSTEP_WITH_NVML)
 	nvml_step_t nvml;
 	#endif
-} step_t;
+} step_type;
 
 
 #endif // vim:filetype=c

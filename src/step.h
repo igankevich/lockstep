@@ -35,7 +35,8 @@ typedef struct {
 	long int nice;
 	long int num_threads;
 	long int unused;
-	unsigned long long int start_time;
+	//unsigned long long int start_time;
+	char start_time[21];
 	unsigned long int virtual_memory_size;
 	long int resident_set_size;
 	unsigned long int resident_set_limit;

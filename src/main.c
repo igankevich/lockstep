@@ -24,7 +24,7 @@
 
 #define STAT_FORMAT \
         "%d (%16[^)]) %c %d %d %d %d %d %u %lu %lu %lu %lu %lu %lu %ld %ld %ld %ld %ld " \
-        "%ld %llu %lu %ld %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %d %d " \
+        "%ld %s %lu %ld %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu %d %d " \
         "%u %u %llu %lu %ld %lu %lu %lu %lu %lu %lu %lu %d"
 
 #define CREDENTIALS_FORMAT "%d %d"
@@ -75,7 +75,7 @@ field_type step_fields[] = {
     {"nice", "%ld", offsetof(step_type, nice)},
     {"num_threads", "%ld", offsetof(step_type, num_threads)},
     {"itrealvalue", "%ld", offsetof(step_type, unused)},
-    {"start_time", "%llu", offsetof(step_type, start_time)},
+    {"start_time", "%s", offsetof(step_type, start_time)},
     {"virtual_memory_size", "%lu", offsetof(step_type, virtual_memory_size)},
     {"resident_set_size", "%ld", offsetof(step_type, resident_set_size)},
     {"resident_set_limit", "%lu", offsetof(step_type, resident_set_limit)},
@@ -228,7 +228,6 @@ step_write(step_type* s) {
     *first++ = '\n';
     *first = 0;
     write_buffer(process_out_fd, buf, first-buf);
-    printf("1=%d\n", 1);
 }
 
 static inline int
@@ -301,7 +300,7 @@ collect_stat(int process_dir_fd, const char* directory, step_type* s) {
         &s->nice,
         &s->num_threads,
         &s->unused,
-        &s->start_time,
+        s->start_time,
         &s->virtual_memory_size,
         &s->resident_set_size,
         &s->resident_set_limit,

@@ -3,8 +3,10 @@
 #include <sys/types.h>
 
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stddef.h>
@@ -53,6 +55,8 @@ typedef enum {
     SYSTEM_HWMON = 1
 } system_fields_type;
 system_fields_type system_fields = 0;
+char*const* child_argv = 0;
+pid_t child_pid = 0;
 
 field_type step_fields[] = {
     {"pid", "%d", offsetof(step_type, process_id)},
@@ -624,7 +628,7 @@ close_fd:
 
 static void
 help_message(const char* argv0) {
-    printf("usage: %s [-i interval] [-f field...] [-o file] [-F field...] [-O file]\n", argv0);
+    printf("usage: %s [-i interval] [-f field...] [-o file] [-F field...] [-O file] [--] [command]\n", argv0);
     fputs("  -i interval  interval in microseconds\n", stdout);
     fputs("  -f field...  process fields\n", stdout);
     fputs("  -o file      write process statistics to file\n", stdout);
@@ -740,8 +744,9 @@ parse_options(int argc, char* argv[]) {
         help_message(argv[0]);
         exit(0);
     }
-    if (process_out_fd == -1) { process_out_fd = 1; }
-    if (system_out_fd == -1) { system_out_fd = 1; }
+    if (optind != argc) { child_argv = argv+optind; }
+    if (process_out_fd == -1) { process_out_fd = STDOUT_FILENO; }
+    if (system_out_fd == -1) { system_out_fd = STDOUT_FILENO; }
 }
 
 static void
@@ -804,11 +809,38 @@ int main(int argc, char* argv[]) {
         }
     }
     #endif
+    if (child_argv != 0) {
+        child_pid = fork();
+        if (child_pid == -1) { perror("fork"); exit(1); }
+        if (child_pid == 0) {
+            if (execvp(child_argv[0], child_argv) == -1) {
+                fprintf(stderr, "failed to execute %s\n", child_argv[0]);
+                exit(1);
+            }
+        }
+    }
+    int status = 0;
+    int waited = 0;
+    int main_ret = 0;
     while (running) {
         time_t timestamp = time(NULL);
         if (num_process_fields != 0) { collect_proc(timestamp); }
         if (system_fields & SYSTEM_HWMON) { collect_hwmon(timestamp); }
+        if (child_pid != 0) {
+            int ret = waitpid(child_pid, &status, WNOHANG);
+            if (ret == -1) { perror("waitpid"); }
+            if (ret == child_pid) {
+                running = 0;
+                waited = 1;
+                if (WIFEXITED(status)) { main_ret = WEXITSTATUS(status); }
+                else if (WIFSIGNALED(status)) { main_ret = WTERMSIG(status); }
+            }
+        }
         usleep(interval);
+    }
+    if (child_pid != 0 && !waited) {
+        if (kill(child_pid, SIGTERM) == -1 && errno != ESRCH) { perror("kill"); }
+        if (waitpid(child_pid, &status, 0) == -1) { perror("waitpid"); }
     }
     #if defined(LOCKSTEP_WITH_NVML)
 nvml_shutdown:
@@ -824,5 +856,5 @@ nvml_shutdown:
     if (system_out_fd > 2) {
         if (close(system_out_fd) == -1) { perror("close"); }
     }
-    return 0;
+    return main_ret;
 }

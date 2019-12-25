@@ -228,6 +228,7 @@ step_write(step_type* s) {
     *first++ = '\n';
     *first = 0;
     write_buffer(process_out_fd, buf, first-buf);
+    printf("1=%d\n", 1);
 }
 
 static inline int
@@ -517,9 +518,7 @@ close_process_dir:
             if (close(process_dir_fd) == -1) {
                 fprintf(stderr, "unable to close /proc/%s directory\n", proc_dir_name);
             }
-            if (num_process_fields > 0) {
-                step_write(&s);
-            }
+            step_write(&s);
         }
     }
     if (closedir(proc) == -1) {
@@ -673,9 +672,6 @@ parse_process_fields(char* fields_argument) {
         ++first;
     }
     *last = 0;
-//  for (int i=0; i<num_process_fields; ++i) {
-//      fprintf(stderr, "field %s\n", step_fields[process_fields[i]].name);
-//  }
 }
 
 static void
@@ -683,7 +679,6 @@ parse_system_fields(char* fields_argument) {
     char* first = fields_argument;
     char* last = first + strlen(fields_argument);
     char* field_begin = first;
-    num_process_fields = 0;
     *last = ',';
     while (first != last+1) {
         if (*first == ',') {

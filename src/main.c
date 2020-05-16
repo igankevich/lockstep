@@ -1,6 +1,6 @@
 /*
 Lockstep — log resources consumed by userland Linux processes.
-© 2018, 2019 Ivan Gankevich
+© 2018, 2019, 2020 Ivan Gankevich
 
 This file is part of Lockstep.
 
@@ -84,7 +84,8 @@ int running = 1;
 int process_out_fd = -1;
 int system_out_fd = -1;
 typedef enum {
-    SYSTEM_HWMON = 1
+    SYSTEM_HWMON = 1,
+    SYSTEM_DRM = 2
 } system_fields_type;
 system_fields_type system_fields = 0;
 char*const* child_argv = 0;
@@ -605,7 +606,7 @@ collect_hwmon(time_t timestamp) {
             }
             char* first = buf;
             int nwritten = sprintf(first, "%lu|/sys/class/hwmon/%s/%s|", timestamp, name, name2);
-            if (nwritten == -1) { continue; }
+            if (nwritten == -1) { goto close_fd; }
             first += nwritten;
             ssize_t nbytes = read(fd, first, sizeof(buf)-4-(first-buf));
             if (nbytes == -1) {
@@ -659,6 +660,59 @@ close_fd:
 }
 
 static void
+collect_drm(time_t timestamp) {
+    const char* fields[] = {
+        "mem_info_gtt_total",
+        "mem_info_gtt_used",
+        "mem_info_vis_vram_total",
+        "mem_info_vis_vram_used",
+        "mem_info_vram_total",
+        "mem_info_vram_used",
+    };
+    char path[4096];
+    DIR* drm = opendir("/sys/class/drm");
+    if (drm == NULL) {
+        perror("unable to open /sys/class/drm directory");
+        return;
+    }
+    for (struct dirent* entry = readdir(drm); entry != NULL; entry = readdir(drm)) {
+        const char* name = entry->d_name;
+        if (strncmp(name, "card", 4) != 0) { continue; }
+        for (int i=0; i<sizeof(fields)/sizeof(const char*); ++i) {
+            const char* name2 = fields[i];
+            snprintf(path, sizeof(path), "/sys/class/drm/%s/device/%s", name, name2);
+            int fd = open(path, O_RDONLY);
+            if (fd == -1) {
+                //fprintf(stderr, "unable to open /sys/class/drm/%s/device/%s file\n",
+                //        name, name2);
+                continue;
+            }
+            char* first = buf;
+            int nwritten =
+                sprintf(first, "%lu|/sys/class/drm/%s/device/%s|", timestamp, name, name2);
+            if (nwritten == -1) { goto close_fd; }
+            first += nwritten;
+            ssize_t nbytes = read(fd, first, sizeof(buf)-4-(first-buf));
+            if (nbytes == -1) {
+                fprintf(stderr, "unable to read from /sys/class/drm/%s/device/%s file\n",
+                        name, name2);
+                goto close_fd;
+            }
+            for (ssize_t i=0; i<nbytes && *first != '\n'; ++i, ++first);
+            *first++ = '\n';
+            *first = 0;
+            write_buffer(system_out_fd, buf, first-buf);
+close_fd:
+            if (close(fd) == -1) { perror("close"); }
+        }
+    }
+    if (closedir(drm) == -1) {
+        perror("unable to close /sys/class/drm directory");
+        return;
+    }
+}
+
+static void
 help_message(const char* argv0) {
     printf("usage: %s [-i interval] [-f field...] [-o file] [-F field...] [-O file] [--] [command]\n", argv0);
     fputs("  -i interval  interval in microseconds\n", stdout);
@@ -682,7 +736,7 @@ help_message(const char* argv0) {
     }
     fputc('\n', stdout);
     fputs("\nsystem fields:\n", stdout);
-    fputs("  hwmon\n", stdout);
+    fputs("  hwmon drm\n", stdout);
 }
 
 static void
@@ -718,11 +772,14 @@ parse_system_fields(char* fields_argument) {
     while (first != last+1) {
         if (*first == ',') {
             *first = 0;
-            if (strcmp(field_begin, "hwmon") != 0) {
+            if (strcmp(field_begin, "hwmon") == 0) {
+                system_fields |= SYSTEM_HWMON;
+            } else if (strcmp(field_begin, "drm") == 0) {
+                system_fields |= SYSTEM_DRM;
+            } else {
                 fprintf(stderr, "bad field: %s\n", field_begin);
                 exit(1);
             }
-            system_fields |= SYSTEM_HWMON;
             *first = ',';
             field_begin = first + 1;
         }
@@ -858,6 +915,7 @@ int main(int argc, char* argv[]) {
         time_t timestamp = time(NULL);
         if (num_process_fields != 0) { collect_proc(timestamp); }
         if (system_fields & SYSTEM_HWMON) { collect_hwmon(timestamp); }
+        if (system_fields & SYSTEM_DRM) { collect_drm(timestamp); }
         if (child_pid != 0) {
             int ret = waitpid(child_pid, &status, WNOHANG);
             if (ret == -1) { perror("waitpid"); }

@@ -1,0 +1,23 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v2.4.0
+    hooks:
+    -   id: check-added-large-files
+        args: ['--maxkb=100']
+    -   id: check-merge-conflict
+    -   id: check-symlinks
+    -   id: check-yaml
+    -   id: detect-private-key
+    -   id: forbid-new-submodules
+-   repo: https://github.com/igankevich/pre-commit-cpp
+    rev: 0.6.3
+    hooks:
+    -   id: normalise-cpp
+        files: \.(h|c|h\.in)$
+    -   id: header-guard
+        files: \.h$
+    -   id: legal
+        files: \.(h|c|h\.in)$
+        args: ['--copyright-string=©', '--programme-name=Lockstep',
+               '--license-notice=unlicense',
+               '--preamble=Lockstep — log resources consumed by userland Linux processes.']

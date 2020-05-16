@@ -6,7 +6,7 @@ Name:           @name@
 %endif
 Version:        @version@
 Release:        @release@%{?dist}
-Summary:        Record resources consumed by userlann processes
+Summary:        Record resources consumed by userland processes
 
 License:        @license@
 URL:            https://github.com/igankevich

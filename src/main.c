@@ -85,7 +85,8 @@ int process_out_fd = -1;
 int system_out_fd = -1;
 typedef enum {
     SYSTEM_HWMON = 1,
-    SYSTEM_DRM = 2
+    SYSTEM_DRM = 2,
+    SYSTEM_THERMAL = 4,
 } system_fields_type;
 system_fields_type system_fields = 0;
 char*const* child_argv = 0;
@@ -660,6 +661,71 @@ close_fd:
 }
 
 static void
+collect_thermal(time_t timestamp) {
+    DIR* thermal = opendir("/sys/class/thermal");
+    if (thermal == NULL) {
+        perror("unable to open /sys/class/thermal directory");
+        return;
+    }
+    int thermal_fd = dirfd(thermal);
+    if (thermal_fd == -1) {
+        perror("unable to open /sys/class/thermal directory");
+        return;
+    }
+    for (struct dirent* entry = readdir(thermal);
+         entry != NULL;
+         entry = readdir(thermal)) {
+        const char* name = entry->d_name;
+        if (strncmp(name, "thermal_zone", 12) != 0) {
+            continue;
+        }
+        int thermal_subdir_fd = openat(thermal_fd, name, O_RDONLY);
+        if (thermal_subdir_fd == -1) {
+            fprintf(stderr, "unable to open /sys/class/thermal/%s directory\n", name);
+            continue;
+        }
+        int fd = openat(thermal_subdir_fd, "temp", O_RDONLY);
+        if (fd == -1) {
+            fprintf(stderr, "unable to open /sys/class/thermal/%s/temp file\n", name);
+            continue;
+        }
+        char* first = buf;
+        int nwritten = sprintf(first, "%lu|/sys/class/thermal/%s/temp|", timestamp, name);
+        if (nwritten == -1) { goto close_fd; }
+        first += nwritten;
+        ssize_t nbytes = read(fd, first, sizeof(buf)-4-(first-buf));
+        if (nbytes == -1) {
+            fprintf(stderr, "unable to read from /sys/class/thermal/%s/temp file\n", name);
+            goto close_fd;
+        }
+        for (ssize_t i=0; i<nbytes && *first != '\n'; ++i, ++first);
+        *first++ = '|';
+close_fd:
+        if (close(fd) == -1) { perror("close"); }
+        fd = openat(thermal_subdir_fd, "type", O_RDONLY);
+        if (fd == -1) {
+            fprintf(stderr, "unable to open /sys/class/thermal/%s/type file\n", name);
+            continue;
+        }
+        nbytes = read(fd, first, sizeof(buf)-3-(first-buf));
+        if (nbytes == -1) {
+            fprintf(stderr, "unable to read from /sys/class/thermal/%s/type file\n", name);
+            goto close_fd_2;
+        }
+        for (ssize_t i=0; i<nbytes && *first != '\n'; ++i, ++first);
+close_fd_2:
+        if (close(fd) == -1) { perror("close"); }
+        *first++ = '\n';
+        *first = 0;
+        write_buffer(system_out_fd, buf, first-buf);
+    }
+    if (closedir(thermal) == -1) {
+        perror("unable to close /sys/class/thermal directory");
+        return;
+    }
+}
+
+static void
 collect_drm(time_t timestamp) {
     const char* fields[] = {
         "mem_info_gtt_total",
@@ -714,7 +780,7 @@ close_fd:
 
 static void
 help_message(const char* argv0) {
-    printf("usage: %s [-i interval] [-f field...] [-o file] [-F field...] [-O file] [--] [command]\n", argv0);
+    printf("usage: %s [-i interval] [-f field...] [-o file] [-F field...] [-O file] [-h] [--] [command]\n", argv0);
     fputs("  -i interval  interval in microseconds\n", stdout);
     fputs("  -f field...  process fields\n", stdout);
     fputs("  -o file      write process statistics to file\n", stdout);
@@ -736,7 +802,7 @@ help_message(const char* argv0) {
     }
     fputc('\n', stdout);
     fputs("\nsystem fields:\n", stdout);
-    fputs("  hwmon drm\n", stdout);
+    fputs("  hwmon thermal drm\n", stdout);
 }
 
 static void
@@ -776,6 +842,8 @@ parse_system_fields(char* fields_argument) {
                 system_fields |= SYSTEM_HWMON;
             } else if (strcmp(field_begin, "drm") == 0) {
                 system_fields |= SYSTEM_DRM;
+            } else if (strcmp(field_begin, "thermal") == 0) {
+                system_fields |= SYSTEM_THERMAL;
             } else {
                 fprintf(stderr, "bad field: %s\n", field_begin);
                 exit(1);
@@ -916,6 +984,7 @@ int main(int argc, char* argv[]) {
         if (num_process_fields != 0) { collect_proc(timestamp); }
         if (system_fields & SYSTEM_HWMON) { collect_hwmon(timestamp); }
         if (system_fields & SYSTEM_DRM) { collect_drm(timestamp); }
+        if (system_fields & SYSTEM_THERMAL) { collect_thermal(timestamp); }
         if (child_pid != 0) {
             int ret = waitpid(child_pid, &status, WNOHANG);
             if (ret == -1) { perror("waitpid"); }

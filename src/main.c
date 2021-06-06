@@ -1,6 +1,6 @@
 /*
 Lockstep — log resources consumed by userland Linux processes.
-© 2018, 2019, 2020 Ivan Gankevich
+© 2018, 2019, 2020, 2021 Ivan Gankevich
 
 This file is part of Lockstep.
 
@@ -85,7 +85,7 @@ static char buf[4096*4];
 static unsigned long interval = 1000000;
 static unsigned long syslog_interval = 5*60*1000000;
 static int enable_syslog = 0;
-static int syslog_facility = LOG_USER;
+static int syslog_facility = LOG_LOCAL0;
 static int syslog_level = LOG_INFO;
 static uid_t min_uid = 1000;
 static int running = 1;

@@ -1,7 +1,7 @@
 project(
 	'lockstep',
 	'c',
-	version: '0.7.0',
+	version: '0.8.0',
 	meson_version: '>=0.45',
 	default_options: ['c_std=c11']
 )
@@ -12,7 +12,11 @@ foreach arg : [
     '-Werror=return-type',
     '-Werror=return-local-addr',
     '-Werror=cast-align',
-    '-Wcast-align=strict']
+    '-Wcast-align=strict',
+    '-Wfloat-conversion',
+    '-Werror=float-conversion',
+    '-fvisibility-inlines-hidden',
+]
     if cc.has_argument(arg)
         add_global_arguments(arg, language: 'c')
     endif

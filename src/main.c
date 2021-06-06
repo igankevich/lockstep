@@ -34,17 +34,21 @@ For more information, please refer to <http://unlicense.org/>
 
 #include <sys/types.h>
 
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -77,22 +81,27 @@ For more information, please refer to <http://unlicense.org/>
         "%lf|%lf|" \
         "%lu"
 
-char buf[4096*4];
-useconds_t interval = 1000000;
-uid_t min_uid = 1000;
-int running = 1;
-int process_out_fd = -1;
-int system_out_fd = -1;
+static char buf[4096*4];
+static unsigned long interval = 1000000;
+static unsigned long syslog_interval = 5*60*1000000;
+static int enable_syslog = 0;
+static int syslog_facility = LOG_USER;
+static int syslog_level = LOG_INFO;
+static uid_t min_uid = 1000;
+static int running = 1;
+static int process_out_fd = -1;
+static int system_out_fd = -1;
 typedef enum {
     SYSTEM_HWMON = 1,
     SYSTEM_DRM = 2,
     SYSTEM_THERMAL = 4,
 } system_fields_type;
-system_fields_type system_fields = 0;
-char*const* child_argv = 0;
-pid_t child_pid = 0;
+static system_fields_type system_fields = 0;
+static system_fields_type syslog_system_fields = 0;
+static char*const* child_argv = 0;
+static pid_t child_pid = 0;
 
-field_type step_fields[] = {
+static field_type step_fields[] = {
     {"pid", "%d", offsetof(step_type, process_id)},
     {"state", "%c", offsetof(step_type, state)},
     {"ppid", "%d", offsetof(step_type, parent_process_id)},
@@ -165,8 +174,8 @@ field_type step_fields[] = {
     #endif
 };
 
-int process_fields[sizeof(step_fields) / sizeof(field_type)];
-int num_process_fields = 0;
+static int process_fields[sizeof(step_fields) / sizeof(field_type)];
+static int num_process_fields = 0;
 
 static inline field_type*
 find_field(const char* name) {
@@ -244,7 +253,10 @@ print_field(char* buf, step_type* step, field_type* field) {
 }
 
 static inline void
-write_buffer(int fd, const char* first, size_t n) {
+write_buffer(int fd, const char* first, size_t n, system_fields_type fields) {
+    if (enable_syslog && (syslog_system_fields & fields)) {
+        syslog(syslog_facility|syslog_level, "%s", first);
+    }
     while (n != 0) {
         ssize_t nwritten = write(fd, first, n);
         if (nwritten == -1) { perror("write"); break; }
@@ -265,7 +277,7 @@ step_write(step_type* s) {
     }
     *first++ = '\n';
     *first = 0;
-    write_buffer(process_out_fd, buf, first-buf);
+    write_buffer(process_out_fd, buf, first-buf, 0);
 }
 
 static inline int
@@ -640,7 +652,7 @@ collect_hwmon(time_t timestamp) {
             }
             *first++ = '\n';
             *first = 0;
-            write_buffer(system_out_fd, buf, first-buf);
+            write_buffer(system_out_fd, buf, first-buf, SYSTEM_HWMON);
             //printf("%lu|/sys/class/hwmon/%s/%s|%s\n", timestamp, name, name2, buf);
 close_fd_3:
             if (fd3 != -1 && close(fd3) == -1) { perror("close"); }
@@ -717,7 +729,7 @@ close_fd_2:
         if (close(fd) == -1) { perror("close"); }
         *first++ = '\n';
         *first = 0;
-        write_buffer(system_out_fd, buf, first-buf);
+        write_buffer(system_out_fd, buf, first-buf, SYSTEM_THERMAL);
     }
     if (closedir(thermal) == -1) {
         perror("unable to close /sys/class/thermal directory");
@@ -767,7 +779,7 @@ collect_drm(time_t timestamp) {
             for (ssize_t i=0; i<nbytes && *first != '\n'; ++i, ++first);
             *first++ = '\n';
             *first = 0;
-            write_buffer(system_out_fd, buf, first-buf);
+            write_buffer(system_out_fd, buf, first-buf, SYSTEM_DRM);
 close_fd:
             if (close(fd) == -1) { perror("close"); }
         }
@@ -780,7 +792,8 @@ close_fd:
 
 static void
 help_message(const char* argv0) {
-    printf("usage: %s [-i interval] [-f field...] [-o file] [-F field...] [-O file] [-h] [--] [command]\n", argv0);
+    printf("usage: %s [-c file] [-i interval] [-f field...] [-o file] [-F field...] [-O file] [-h] [--] [command]\n", argv0);
+    fputs("  -c file      configuration file\n", stdout);
     fputs("  -i interval  interval in microseconds\n", stdout);
     fputs("  -f field...  process fields\n", stdout);
     fputs("  -o file      write process statistics to file\n", stdout);
@@ -829,42 +842,203 @@ parse_process_fields(char* fields_argument) {
     *last = 0;
 }
 
-static void
-parse_system_fields(char* fields_argument) {
-    char* first = fields_argument;
-    char* last = first + strlen(fields_argument);
-    char* field_begin = first;
-    *last = ',';
-    while (first != last+1) {
+static int
+compare_chars(const char* first, const char* last, const char* str) {
+    const size_t n1 = last-first;
+    const size_t n2 = strlen(str);
+    if (n1 != n2) { return -1; }
+    return strncmp(first, str, n1);
+}
+
+static system_fields_type
+parse_system_fields(const char* first, const char* last) {
+    system_fields_type result = 0;
+    const char* field_begin = first;
+    while (first != last) {
         if (*first == ',') {
-            *first = 0;
-            if (strcmp(field_begin, "hwmon") == 0) {
-                system_fields |= SYSTEM_HWMON;
-            } else if (strcmp(field_begin, "drm") == 0) {
-                system_fields |= SYSTEM_DRM;
-            } else if (strcmp(field_begin, "thermal") == 0) {
-                system_fields |= SYSTEM_THERMAL;
+            const size_t n = first - field_begin;
+            if (compare_chars(field_begin, first, "hwmon") == 0) {
+                result |= SYSTEM_HWMON;
+            } else if (compare_chars(field_begin, first, "drm") == 0) {
+                result |= SYSTEM_DRM;
+            } else if (compare_chars(field_begin, first, "thermal") == 0) {
+                result |= SYSTEM_THERMAL;
             } else {
-                fprintf(stderr, "bad field: %s\n", field_begin);
+                fputs("bad field: ", stderr);
+                fwrite(field_begin, 1, n, stderr);
+                fputs("\n", stderr);
                 exit(1);
             }
-            *first = ',';
             field_begin = first + 1;
         }
         ++first;
     }
-    *last = 0;
+    return result;
+}
+
+static unsigned long
+parse_unsigned_long(const char* first, const char* last) {
+    unsigned long i = 0;
+    unsigned long power = 1;
+    while (first != last) {
+        --last;
+        if (*last < '0' || *last > '9') { perror("parse_unsigned_long"); }
+        unsigned long addon = power * ((*last)-'0');
+        if (ULONG_MAX - addon < i) { return ULONG_MAX; }
+        i += addon;
+        power *= 10;
+    }
+    return i;
+}
+
+static unsigned long
+parse_duration(const char* first, const char* last) {
+    const char* suffix_first = last;
+    while (suffix_first != first && !isdigit(*(suffix_first-1))) {
+        --suffix_first;
+    }
+    unsigned long interval = parse_unsigned_long(first, suffix_first);
+    if (compare_chars(suffix_first, last, "m") == 0) { interval *= 60UL*100000UL; }
+    else if (compare_chars(suffix_first, last, "s") == 0) { interval *= 1000000UL; }
+    else if (compare_chars(suffix_first, last, "ms") == 0) { interval *= 1000UL; }
+    else if (compare_chars(suffix_first, last, "us") == 0) {}
+    else if (compare_chars(suffix_first, last, "ns") == 0) { interval /= 1000UL; }
+    else { return ULONG_MAX; }
+    if (interval <= 0) {
+        fprintf(stderr, "bad interval %lu\n", interval);
+        exit(1);
+    }
+    return interval;
+}
+
+static int
+parse_syslog_facility(const char* first, const char* last) {
+    int facility = LOG_USER;
+    if (compare_chars(first, last, "auth") == 0) { facility = LOG_AUTH; }
+    else if (compare_chars(first, last, "authpriv") == 0) { facility = LOG_AUTHPRIV; }
+    else if (compare_chars(first, last, "cron") == 0) { facility = LOG_CRON; }
+    else if (compare_chars(first, last, "daemon") == 0) { facility = LOG_DAEMON; }
+    else if (compare_chars(first, last, "ftp") == 0) { facility = LOG_FTP; }
+    else if (compare_chars(first, last, "kern") == 0) { facility = LOG_KERN; }
+    else if (compare_chars(first, last, "local0") == 0) { facility = LOG_LOCAL0; }
+    else if (compare_chars(first, last, "local1") == 0) { facility = LOG_LOCAL1; }
+    else if (compare_chars(first, last, "local2") == 0) { facility = LOG_LOCAL2; }
+    else if (compare_chars(first, last, "local3") == 0) { facility = LOG_LOCAL3; }
+    else if (compare_chars(first, last, "local4") == 0) { facility = LOG_LOCAL4; }
+    else if (compare_chars(first, last, "local5") == 0) { facility = LOG_LOCAL5; }
+    else if (compare_chars(first, last, "local6") == 0) { facility = LOG_LOCAL6; }
+    else if (compare_chars(first, last, "local7") == 0) { facility = LOG_LOCAL7; }
+    else if (compare_chars(first, last, "lpr") == 0) { facility = LOG_LPR; }
+    else if (compare_chars(first, last, "mail") == 0) { facility = LOG_MAIL; }
+    else if (compare_chars(first, last, "news") == 0) { facility = LOG_NEWS; }
+    else if (compare_chars(first, last, "syslog") == 0) { facility = LOG_SYSLOG; }
+    else if (compare_chars(first, last, "user") == 0) { facility = LOG_USER; }
+    else if (compare_chars(first, last, "uucp") == 0) { facility = LOG_UUCP; }
+    return facility;
+}
+
+static int
+parse_syslog_level(const char* first, const char* last) {
+    int level = LOG_INFO;
+    if (compare_chars(first, last, "emerg") == 0) { level = LOG_EMERG; }
+    else if (compare_chars(first, last, "alert") == 0) { level = LOG_ALERT; }
+    else if (compare_chars(first, last, "crit") == 0) { level = LOG_CRIT; }
+    else if (compare_chars(first, last, "err") == 0) { level = LOG_ERR; }
+    else if (compare_chars(first, last, "warning") == 0) { level = LOG_WARNING; }
+    else if (compare_chars(first, last, "notice") == 0) { level = LOG_NOTICE; }
+    else if (compare_chars(first, last, "info") == 0) { level = LOG_INFO; }
+    else if (compare_chars(first, last, "debug") == 0) { level = LOG_DEBUG; }
+    return level;
+}
+
+static void
+read_configuration_line(const char* first, const char* last,
+                        const char* path, int line_number) {
+    // skip comments
+    const char* middle = first;
+    while (middle != last && *middle != '#') { ++middle; }
+    last = middle;
+    // trim whitespace
+    while (first != last && isspace(*first)) { ++first; }
+    while (first != last && isspace(*(last-1))) { --last; }
+    // skip empty lines
+    if (first == last) { return; }
+    // find separator
+    middle = first;
+    while (middle != last && *middle != '=') { ++middle; }
+    if (middle == last) {
+        fprintf(stderr, "%s:%d error: no separator", path, line_number);
+    }
+    const char* key_first = first;
+    const char* key_last = middle;
+    while (key_first != key_last && isspace(*(key_last-1))) { --key_last; }
+    const char* value_first = middle+1;
+    const char* value_last = last;
+    while (value_first != value_last && isspace(*value_first)) { ++value_first; }
+    const size_t key_size = key_last-key_first;
+    // parse keys and values
+    if (compare_chars(key_first, key_last, "syslog.system.fields") == 0) {
+        syslog_system_fields = parse_system_fields(value_first, value_last);
+    } else if (compare_chars(key_first, key_last, "syslog.interval") == 0) {
+        syslog_interval = parse_duration(value_first, value_last);
+        if (syslog_interval == 0 || syslog_interval == ULONG_MAX) {
+            fprintf(stderr, "%s:%d error: bad interval", path, line_number);
+            exit(1);
+        }
+    } else if (compare_chars(key_first, key_last, "syslog.facility") == 0) {
+        syslog_facility = parse_syslog_facility(value_first, value_last);
+    } else if (compare_chars(key_first, key_last, "syslog.level") == 0) {
+        syslog_level = parse_syslog_level(value_first, value_last);
+    } else if (compare_chars(key_first, key_last, "interval") == 0) {
+        interval = parse_duration(value_first, value_last);
+        if (interval == 0 || interval == ULONG_MAX) {
+            fprintf(stderr, "%s:%d error: bad interval", path, line_number);
+            exit(1);
+        }
+    } else {
+        fprintf(stderr, "%s:%d error: bad field ", path, line_number);
+        fwrite(key_first, 1, key_size, stderr);
+        fputs("\n", stderr);
+        exit(1);
+    }
+}
+
+static void read_configuration(const char* path) {
+    int fd = open(path, O_RDONLY|O_CLOEXEC);
+    if (fd == -1) {
+        fprintf(stderr, "failed to open %s for reading\n", path);
+        exit(1);
+    }
+    struct stat status = {0};
+    if (stat(path, &status) == -1) {
+        fprintf(stderr, "failed to get %s file status\n", path);
+        exit(1);
+    }
+    const char* buffer = (const char*)mmap(0, status.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (buffer == 0) { perror("mmap"); }
+    const char* line_start = buffer;
+    int line_number = 1;
+    for (size_t i=0; i<status.st_size; ++i) {
+        char ch = buffer[i];
+        if (ch == '\n') {
+            read_configuration_line(line_start, buffer+i, path, line_number);
+            line_start = buffer + i + 1;
+            ++line_number;
+        }
+    }
+    if (close(fd) == -1) { perror("close"); }
+    if (munmap((void*)buffer, status.st_size) == -1) { perror("munmap"); }
 }
 
 static void
 parse_options(int argc, char* argv[]) {
     int opt = 0;
     int help = 0;
-    while ((opt = getopt(argc, argv, "i:f:o:F:O:h")) != -1) {
+    while ((opt = getopt(argc, argv, "c:i:f:o:F:O:h")) != -1) {
         if (opt == 'i') {
-            useconds_t new_interval = atoi(optarg);
+            unsigned long new_interval = atol(optarg);
             if (new_interval <= 0) {
-                fprintf(stderr, "bad interval %u\n", new_interval);
+                fprintf(stderr, "bad interval %lu\n", new_interval);
                 exit(1);
             }
             interval = new_interval;
@@ -883,7 +1057,7 @@ parse_options(int argc, char* argv[]) {
             }
         }
         if (opt == 'F') {
-            parse_system_fields(optarg);
+            system_fields = parse_system_fields(optarg, optarg + strlen(optarg));
         }
         if (opt == 'O') {
             system_out_fd = open(optarg, O_CREAT|O_APPEND|O_WRONLY, 0644);
@@ -891,6 +1065,9 @@ parse_options(int argc, char* argv[]) {
                 fprintf(stderr, "failed to open %s for writing\n", optarg);
                 exit(1);
             }
+        }
+        if (opt == 'c') {
+            read_configuration(optarg);
         }
         if (opt == '?') {
             help_message(argv[0]);
@@ -979,12 +1156,14 @@ int main(int argc, char* argv[]) {
     int status = 0;
     int waited = 0;
     int main_ret = 0;
+    const unsigned long syslog_interval_multiple = syslog_interval / interval;
+    unsigned long syslog_interval_multiple_count = 0;
     while (running) {
         time_t timestamp = time(NULL);
         if (num_process_fields != 0) { collect_proc(timestamp); }
-        if (system_fields & SYSTEM_HWMON) { collect_hwmon(timestamp); }
-        if (system_fields & SYSTEM_DRM) { collect_drm(timestamp); }
-        if (system_fields & SYSTEM_THERMAL) { collect_thermal(timestamp); }
+        if ((system_fields | syslog_system_fields) & SYSTEM_HWMON) { collect_hwmon(timestamp); }
+        if ((system_fields | syslog_system_fields) & SYSTEM_DRM) { collect_drm(timestamp); }
+        if ((system_fields | syslog_system_fields) & SYSTEM_THERMAL) { collect_thermal(timestamp); }
         if (child_pid != 0) {
             int ret = waitpid(child_pid, &status, WNOHANG);
             if (ret == -1) { perror("waitpid"); }
@@ -995,7 +1174,17 @@ int main(int argc, char* argv[]) {
                 else if (WIFSIGNALED(status)) { main_ret = WTERMSIG(status); }
             }
         }
-        usleep(interval);
+        struct timespec t;
+        t.tv_sec = interval / 1000000UL;
+        t.tv_nsec = (interval % 1000000UL) * 1000UL;
+        if (nanosleep(&t, 0) == -1 && errno != EINTR) { perror("nanosleep"); }
+        ++syslog_interval_multiple_count;
+        if (syslog_interval_multiple_count == syslog_interval_multiple) {
+            enable_syslog = 1;
+            syslog_interval_multiple_count = 0;
+        } else {
+            enable_syslog = 0;
+        }
     }
     if (child_pid != 0 && !waited) {
         if (kill(child_pid, SIGTERM) == -1 && errno != ESRCH) { perror("kill"); }

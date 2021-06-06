@@ -898,7 +898,7 @@ parse_duration(const char* first, const char* last) {
         --suffix_first;
     }
     unsigned long interval = parse_unsigned_long(first, suffix_first);
-    if (compare_chars(suffix_first, last, "m") == 0) { interval *= 60UL*100000UL; }
+    if (compare_chars(suffix_first, last, "m") == 0) { interval *= 60UL*1000000UL; }
     else if (compare_chars(suffix_first, last, "s") == 0) { interval *= 1000000UL; }
     else if (compare_chars(suffix_first, last, "ms") == 0) { interval *= 1000UL; }
     else if (compare_chars(suffix_first, last, "us") == 0) {}

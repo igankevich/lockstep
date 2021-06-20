@@ -854,8 +854,8 @@ static system_fields_type
 parse_system_fields(const char* first, const char* last) {
     system_fields_type result = 0;
     const char* field_begin = first;
-    while (first != last) {
-        if (*first == ',') {
+    while (first != last+1) {
+        if (first == last || *first == ',') {
             const size_t n = first - field_begin;
             if (compare_chars(field_begin, first, "hwmon") == 0) {
                 result |= SYSTEM_HWMON;

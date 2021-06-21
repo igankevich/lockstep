@@ -177,12 +177,31 @@ static field_type step_fields[] = {
 static int process_fields[sizeof(step_fields) / sizeof(field_type)];
 static int num_process_fields = 0;
 
+static int
+compare_chars(const char* first, const char* last, const char* str) {
+    const size_t n1 = last-first;
+    const size_t n2 = strlen(str);
+    if (n1 != n2) { return -1; }
+    return strncmp(first, str, n1);
+}
+
+static int
+open_output_file(const char* path) {
+    int fd = open(path, O_CREAT|O_APPEND|O_WRONLY, 0644);
+    if (fd == -1) {
+        fprintf(stderr, "failed to open %s for writing\n", path);
+        exit(1);
+    }
+    return fd;
+}
+
 static inline field_type*
-find_field(const char* name) {
+find_field(const char* name, const char* name_last) {
     field_type* first = step_fields;
     field_type* last = step_fields + sizeof(step_fields) / sizeof(field_type);
     while (first != last) {
-        if (strcmp(first->name, name) == 0) {
+        if (compare_chars(name, name_last, first->name) == 0) {
+        //if (strncmp(first->name, name, n) == 0) {
             return first;
         }
         ++first;
@@ -832,35 +851,24 @@ help_message(const char* argv0) {
 }
 
 static void
-parse_process_fields(char* fields_argument) {
-    char* first = fields_argument;
-    char* last = first + strlen(fields_argument);
-    char* field_begin = first;
+parse_process_fields(const char* first, const char* last) {
+    const char* field_begin = first;
     num_process_fields = 0;
-    *last = ',';
     while (first != last+1) {
-        if (*first == ',') {
-            *first = 0;
-            field_type* result = find_field(field_begin);
+        if (first == last || *first == ',') {
+            const size_t n = first - field_begin;
+            field_type* result = find_field(field_begin, first);
             if (result == NULL) {
-                fprintf(stderr, "bad field: %s\n", field_begin);
+                fputs("bad field: ", stderr);
+                fwrite(field_begin, 1, n, stderr);
+                fputs("\n", stderr);
                 exit(1);
             }
             process_fields[num_process_fields++] = result - step_fields;
-            *first = ',';
             field_begin = first + 1;
         }
         ++first;
     }
-    *last = 0;
-}
-
-static int
-compare_chars(const char* first, const char* last, const char* str) {
-    const size_t n1 = last-first;
-    const size_t n2 = strlen(str);
-    if (n1 != n2) { return -1; }
-    return strncmp(first, str, n1);
 }
 
 static system_fields_type
@@ -989,6 +997,7 @@ read_configuration_line(const char* first, const char* last,
     const char* value_last = last;
     while (value_first != value_last && isspace(*value_first)) { ++value_first; }
     const size_t key_size = key_last-key_first;
+    char tmp[PATH_MAX];
     // parse keys and values
     if (compare_chars(key_first, key_last, "syslog.system.fields") == 0) {
         syslog_system_fields = parse_system_fields(value_first, value_last);
@@ -1008,6 +1017,18 @@ read_configuration_line(const char* first, const char* last,
             fprintf(stderr, "%s:%d error: bad interval", path, line_number);
             exit(1);
         }
+    } else if (compare_chars(key_first, key_last, "system.fields") == 0) {
+        system_fields = parse_system_fields(value_first, value_last);
+    } else if (compare_chars(key_first, key_last, "system.output") == 0) {
+        strncpy(tmp, key_first, key_last-key_first);
+        tmp[key_last-key_first] = 0;
+        system_out_fd = open_output_file(tmp);
+    } else if (compare_chars(key_first, key_last, "process.fields") == 0) {
+        parse_process_fields(value_first, value_last);
+    } else if (compare_chars(key_first, key_last, "process.output") == 0) {
+        strncpy(tmp, key_first, key_last-key_first);
+        tmp[key_last-key_first] = 0;
+        process_out_fd = open_output_file(tmp);
     } else {
         fprintf(stderr, "%s:%d error: bad field ", path, line_number);
         fwrite(key_first, 1, key_size, stderr);
@@ -1057,27 +1078,19 @@ parse_options(int argc, char* argv[]) {
             interval = new_interval;
         }
         if (opt == 'f') {
-            parse_process_fields(optarg);
+            parse_process_fields(optarg, optarg + strlen(optarg));
         }
         if (opt == 'h') {
             help = 1;
         }
         if (opt == 'o') {
-            process_out_fd = open(optarg, O_CREAT|O_APPEND|O_WRONLY, 0644);
-            if (process_out_fd == -1) {
-                fprintf(stderr, "failed to open %s for writing\n", optarg);
-                exit(1);
-            }
+            process_out_fd = open_output_file(optarg);
         }
         if (opt == 'F') {
             system_fields = parse_system_fields(optarg, optarg + strlen(optarg));
         }
         if (opt == 'O') {
-            system_out_fd = open(optarg, O_CREAT|O_APPEND|O_WRONLY, 0644);
-            if (system_out_fd == -1) {
-                fprintf(stderr, "failed to open %s for writing\n", optarg);
-                exit(1);
-            }
+            system_out_fd = open_output_file(optarg);
         }
         if (opt == 'c') {
             read_configuration(optarg);

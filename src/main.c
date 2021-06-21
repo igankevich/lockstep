@@ -253,10 +253,14 @@ print_field(char* buf, step_type* step, field_type* field) {
 }
 
 static inline void
-write_buffer(int fd, const char* first, size_t n, system_fields_type fields) {
+write_to_syslog(const char* first, system_fields_type fields) {
     if (enable_syslog && (syslog_system_fields & fields)) {
         syslog(syslog_facility|syslog_level, "%s", first);
     }
+}
+
+static inline void
+write_to_file(int fd, const char* first, size_t n) {
     while (n != 0) {
         ssize_t nwritten = write(fd, first, n);
         if (nwritten == -1) { perror("write"); break; }
@@ -277,7 +281,7 @@ step_write(step_type* s) {
     }
     *first++ = '\n';
     *first = 0;
-    write_buffer(process_out_fd, buf, first-buf, 0);
+    write_to_file(process_out_fd, buf, first-buf);
 }
 
 static inline int
@@ -652,7 +656,10 @@ collect_hwmon(time_t timestamp) {
             }
             *first++ = '\n';
             *first = 0;
-            write_buffer(system_out_fd, buf, first-buf, SYSTEM_HWMON);
+            if (system_fields & SYSTEM_HWMON) {
+                write_to_file(system_out_fd, buf, first-buf);
+            }
+            write_to_syslog(buf, SYSTEM_HWMON);
             //printf("%lu|/sys/class/hwmon/%s/%s|%s\n", timestamp, name, name2, buf);
 close_fd_3:
             if (fd3 != -1 && close(fd3) == -1) { perror("close"); }
@@ -729,7 +736,10 @@ close_fd_2:
         if (close(fd) == -1) { perror("close"); }
         *first++ = '\n';
         *first = 0;
-        write_buffer(system_out_fd, buf, first-buf, SYSTEM_THERMAL);
+        if (system_fields & SYSTEM_THERMAL) {
+            write_to_file(system_out_fd, buf, first-buf);
+        }
+        write_to_syslog(buf, SYSTEM_THERMAL);
     }
     if (closedir(thermal) == -1) {
         perror("unable to close /sys/class/thermal directory");
@@ -779,7 +789,10 @@ collect_drm(time_t timestamp) {
             for (ssize_t i=0; i<nbytes && *first != '\n'; ++i, ++first);
             *first++ = '\n';
             *first = 0;
-            write_buffer(system_out_fd, buf, first-buf, SYSTEM_DRM);
+            if (system_fields & SYSTEM_DRM) {
+                write_to_file(system_out_fd, buf, first-buf);
+            }
+            write_to_syslog(buf, SYSTEM_DRM);
 close_fd:
             if (close(fd) == -1) { perror("close"); }
         }

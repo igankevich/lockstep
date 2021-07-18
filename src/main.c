@@ -324,7 +324,6 @@ collect_executable(int process_dir_fd, const char* directory, step_type* s) {
         sizeof(s->executable)
     );
     if (nbytes == -1) {
-        fprintf(stderr, "unable to read /proc/%s/exe link\n", directory);
         ret = -1;
         goto end;
     }
@@ -406,7 +405,6 @@ collect_stat(int process_dir_fd, const char* directory, step_type* s) {
         &s->exit_code
     );
     if (collect_executable(process_dir_fd, directory, s) == -1) {
-        fprintf(stderr, "failed to collect executable name\n");
         ret = -1;
         goto close_fd;
     }
@@ -549,7 +547,7 @@ collect_proc(time_t timestamp) {
         }
         struct stat st;
         if (fstatat(proc_fd, entry->d_name, &st, 0) == -1) {
-            fprintf(stderr, "failed to stat %s\n", entry->d_name);
+            // the process have terminated
             continue;
         }
         s.user_id = st.st_uid;
@@ -753,6 +751,7 @@ close_fd:
         for (ssize_t i=0; i<nbytes && *first != '\n'; ++i, ++first);
 close_fd_2:
         if (close(fd) == -1) { perror("close"); }
+        if (close(thermal_subdir_fd) == -1) { perror("close"); }
         *first++ = '\n';
         *first = 0;
         if (system_fields & SYSTEM_THERMAL) {
@@ -1203,7 +1202,8 @@ int main(int argc, char* argv[]) {
         struct timespec t;
         t.tv_sec = interval / 1000000UL;
         t.tv_nsec = (interval % 1000000UL) * 1000UL;
-        if (nanosleep(&t, 0) == -1 && errno != EINTR) { perror("nanosleep"); }
+        //if (nanosleep(&t, 0) == -1 && errno != EINTR) { perror("nanosleep"); }
+        if (clock_nanosleep(CLOCK_MONOTONIC, 0, &t, 0) == -1 && errno != EINTR) { perror("clock_nanosleep"); }
         ++syslog_interval_multiple_count;
         if (syslog_interval_multiple_count == syslog_interval_multiple) {
             enable_syslog = 1;
